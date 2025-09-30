@@ -1,10 +1,24 @@
-import { Plugin, TFile} from 'obsidian';
+import { Plugin, TFile, PluginSettingTab, Setting } from 'obsidian';
+
+interface SNoteSettings {
+  showRibbonButton: boolean;
+}
+
+const DEFAULT_SETTINGS: SNoteSettings = {
+  showRibbonButton: true,
+};
 
 export default class SNote extends Plugin {
   private sessionNotes: TFile[] = [];
   private tempNote?: TFile;
 
+  settings: SNoteSettings = DEFAULT_SETTINGS;
+  private ribbonEl?: HTMLElement;
+
   async onload() {
+    await this.loadSettings();
+
+    // Commands
     this.addCommand({
       id: 'open-temp-note',
       name: 'Open a temporary note (delete on change)',
@@ -17,6 +31,13 @@ export default class SNote extends Plugin {
       callback: () => this.openSessionNote(),
     });
 
+    // Ribbon (conditionally added based on settings)
+    this.updateRibbon();
+
+    // Settings tab
+    this.addSettingTab(new SNoteSettingTab(this.app, this));
+
+    // Lifecycle hooks
     window.addEventListener('beforeunload', (event) => {
       if (this.sessionNotes.length === 0) {
         return;
@@ -77,7 +98,84 @@ export default class SNote extends Plugin {
     window.close();
   }
 
+  // Toggle show/hide of session notes in the workspace
+  toggleSessionNotesVisibility() {
+    const sessionSet = new Set(this.sessionNotes.map((f) => f.path));
+    const leaves = this.app.workspace.getLeavesOfType('markdown');
+
+    // Are any session notes currently open?
+    const sessionLeaves = leaves.filter((l: any) => l?.view?.file && sessionSet.has(l.view.file.path));
+
+    if (sessionLeaves.length > 0) {
+      // Hide: close all leaves that display session notes
+      sessionLeaves.forEach((l: any) => l.detach());
+    } else if (this.sessionNotes.length > 0) {
+      // Show: open the most recent session note
+      const last = this.sessionNotes[this.sessionNotes.length - 1];
+      const leaf = this.app.workspace.getLeaf();
+      leaf.openFile(last);
+    } else {
+      // No session notes yet; create and open one
+      this.openSessionNote();
+    }
+  }
+
+  updateRibbon() {
+    if (this.settings.showRibbonButton) {
+      if (!this.ribbonEl) {
+        this.ribbonEl = this.addRibbonIcon('dice', 'Toggle Session Notes', () => this.toggleSessionNotesVisibility());
+      }
+    } else {
+      if (this.ribbonEl) {
+        this.ribbonEl.remove();
+        this.ribbonEl = undefined;
+      }
+    }
+  }
+
+  async loadSettings() {
+    const data = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+  }
+
   onunload() {
-    window.removeEventListener('beforeunload', () => this.deleteSessionNotes());
+    // Note: removing the beforeunload listener here would require keeping a handle to the bound function.
+    if (this.ribbonEl) {
+      this.ribbonEl.remove();
+      this.ribbonEl = undefined;
+    }
+  }
+}
+
+class SNoteSettingTab extends PluginSettingTab {
+  plugin: SNote;
+
+  constructor(app: any, plugin: SNote) {
+    super(app, plugin);
+    this.plugin = plugin;
+  }
+
+  display(): void {
+    const { containerEl } = this;
+    containerEl.empty();
+
+    containerEl.createEl('h2', { text: 'Session Notes Settings' });
+
+    new Setting(containerEl)
+      .setName('Show ribbon button')
+      .setDesc('Show a ribbon icon to toggle visibility of session notes in the workspace.')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showRibbonButton)
+          .onChange(async (value) => {
+            this.plugin.settings.showRibbonButton = value;
+            await this.plugin.saveSettings();
+            this.plugin.updateRibbon();
+          })
+      );
   }
 }
