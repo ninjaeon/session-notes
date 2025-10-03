@@ -2,10 +2,12 @@ import { Plugin, TFile, PluginSettingTab, Setting } from 'obsidian';
 
 interface SNoteSettings {
   showRibbonButton: boolean;
+  showSessionNoteOnStartup: boolean;
 }
 
 const DEFAULT_SETTINGS: SNoteSettings = {
   showRibbonButton: true,
+  showSessionNoteOnStartup: false,
 };
 
 export default class SNote extends Plugin {
@@ -18,16 +20,25 @@ export default class SNote extends Plugin {
   async onload() {
     await this.loadSettings();
 
+    // Auto-open a Session Note on startup if enabled, after layout is ready
+    this.app.workspace.onLayoutReady(() => {
+      if (this.settings.showSessionNoteOnStartup) {
+        this.openSessionNote();
+      }
+    });
+
     // Commands
     this.addCommand({
       id: 'open-temp-note',
       name: 'Open a temporary note (delete on change)',
+      hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: ';' }],
       callback: () => this.openTempNote(),
     });
 
     this.addCommand({
       id: 'open-session-note',
       name: 'Open a session note (delete on app close)',
+      hotkeys: [{ modifiers: ['Ctrl', 'Shift'], key: '\'' }],
       callback: () => this.openSessionNote(),
     });
 
@@ -175,6 +186,18 @@ class SNoteSettingTab extends PluginSettingTab {
             this.plugin.settings.showRibbonButton = value;
             await this.plugin.saveSettings();
             this.plugin.updateRibbon();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName('Shows Session Note on Startup')
+      .setDesc('Automatically create and open a Session Note when Obsidian starts.')
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showSessionNoteOnStartup)
+          .onChange(async (value) => {
+            this.plugin.settings.showSessionNoteOnStartup = value;
+            await this.plugin.saveSettings();
           })
       );
   }
